@@ -1,50 +1,241 @@
 ﻿# SHA-256 File Integrity Verification System
 
-> **Evaluator quick start:** Follow the [run instructions](#quick-start) below to launch the project. Read the full [Project Report](REPORT.md) for the design and results.
+A Python-based cryptographic tool that uses **SHA-256 hashing** and **HMAC signing** to detect unauthorized file modifications, deletions, or additions — with both a CLI and a Tkinter GUI.
 
-Python + `hashlib` only (no third-party packages).
+---
 
-## Quick Start
+## Table of Contents
 
-Requires Python 3. From the project folder, run:
+- [Overview](#overview)
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Running the Project](#running-the-project)
+  - [1. CLI — Generate Baseline](#1-cli--generate-baseline)
+  - [2. CLI — Verify Integrity](#2-cli--verify-integrity)
+  - [3. GUI](#3-gui)
+  - [4. Demo (Scripted Attack Simulation)](#4-demo-scripted-attack-simulation)
+  - [5. Test Suite](#5-test-suite)
+- [All CLI Commands](#all-cli-commands)
+- [How It Works](#how-it-works)
+- [Security Notes](#security-notes)
 
-```powershell
+---
+
+## Overview
+
+This project implements a **file integrity checker** as part of an Applied Cryptography course assignment. It computes SHA-256 digests for tracked files, stores them in an HMAC-signed JSON store (`hashes.json`), and reports any tampering — including modification, deletion, or new unauthorized files.
+
+---
+
+## Features
+
+| Feature | Detail |
+|---|---|
+| Hash algorithm | SHA-256 via `hashlib` (streamed in 1 MB chunks) |
+| Tamper detection | `MODIFIED`, `MISSING`, `NEW`, `UNKNOWN` statuses |
+| Store integrity | HMAC-signed `hashes.json`; tampering with the store itself is detected |
+| Constant-time comparison | `hmac.compare_digest` to prevent timing attacks |
+| Reports | HTML / JSON / TXT export |
+| GUI | Tkinter-based graphical interface |
+| Audit trail | `integrity.log` |
+| Exit codes | `0` = clean, `1` = tampered files, `2` = store tampered (scriptable) |
+
+---
+
+## Project Structure
+
+```
+applied-cryptography-project/
+├── integrity.py        # Core logic + CLI
+├── gui.py              # Tkinter GUI
+├── demo.py             # Scripted attack demonstration
+├── test_integrity.py   # Unit test suite
+├── requirements.txt    # Dependencies (stdlib only)
+├── hashes.json         # Generated hash store (after first run)
+├── integrity.log       # Audit log (auto-created)
+├── .integrity.key      # HMAC key (auto-generated or set via env)
+├── docs/               # Sample folder used in demo/tests
+└── testdir/            # Test assets
+```
+
+---
+
+## Prerequisites
+
+- **Python 3.8+**
+- **Tkinter** (for GUI only — usually bundled with Python)
+
+Verify:
+
+```bash
 python --version
+# Python 3.x.x
+
+python -c "import tkinter; print('Tkinter OK')"
+```
+
+> On Ubuntu/Debian, if Tkinter is missing:
+> ```bash
+> sudo apt install python3-tk
+> ```
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/adityacyan/applied-cryptography-project.git
+cd applied-cryptography-project
+
+# No third-party packages needed — stdlib only
+# Optionally confirm:
+pip install -r requirements.txt
+```
+
+---
+
+## Running the Project
+
+### 1. CLI — Generate Baseline
+
+Record SHA-256 hashes for all files in a directory:
+
+```bash
 python integrity.py generate docs/
+```
+
+With multiple targets and an exclusion pattern:
+
+```bash
+python integrity.py generate docs/ file.txt -x "*.tmp"
+```
+
+This creates/updates `hashes.json` and signs it with an HMAC key.
+
+---
+
+### 2. CLI — Verify Integrity
+
+Check all tracked files against the stored baseline:
+
+```bash
 python integrity.py verify
 ```
 
-The first command records a baseline for files in `docs/`; the second checks them for changes. To try the graphical interface, run `python gui.py` (Tkinter must be available). To see a scripted demonstration, run `python demo.py`.
+Each file will be reported as:
 
-For a full explanation of the project, see the **[Project Report](REPORT.md)**.
-
-## Usage
-```
-python integrity.py generate docs/ file.txt -x "*.tmp"   # hash files/folders (skip patterns), save baseline
-python integrity.py verify                               # check all; detects MODIFIED / MISSING / NEW files
-python integrity.py verify --report report.html          # also write .html/.json/.txt report
-python integrity.py update file.txt                      # accept an authorised change
-python integrity.py list | remove <path> | log | hash <file>
-python gui.py                                            # graphical interface (Tkinter)
-python demo.py                                           # scripted attack demonstration
-python -m unittest -v                                    # test suite
-```
-`verify` exits 0 if all intact, 1 on tampering, 2 if the hash store itself was tampered with (usable in scripts/cron).
-
-## How it maps to the project tasks
-| Task | Implementation |
+| Status | Meaning |
 |---|---|
-| Hash generation | `sha256_file()` streams files in 1 MB chunks through `hashlib.sha256` |
-| Integrity checking | `verify()` recomputes hashes, compares with constant-time `hmac.compare_digest` |
-| Tampering detection | `OK` / `MODIFIED` / `MISSING` / `NEW` (unauthorised file in a tracked folder) / `UNKNOWN` |
-| Hash storage | `hashes.json`: atomic write, owner-only permissions, hash + size + timestamp, HMAC-signed |
-| Security verification | Editing the store or key is detected; `demo.py` and unit tests demonstrate each attack; `integrity.log` keeps an audit trail |
+| `OK` | Unchanged |
+| `MODIFIED` | Content has changed |
+| `MISSING` | File was deleted |
+| `NEW` | Untracked file appeared in a monitored folder |
+| `UNKNOWN` | Not in baseline, not in a monitored folder |
 
-## Files
-`integrity.py` core + CLI · `gui.py` Tkinter app · `demo.py` demo · `test_integrity.py` tests
+Generate an HTML report alongside:
 
-## Security notes
-- A bare hash file can be rewritten by an attacker together with the tampered file. The HMAC key
-  (`INTEGRITY_KEY` env var, or `.integrity.key`) prevents that; keep the key separate from the store.
-- Any change, even one bit, yields a completely different SHA-256 digest.
-- Changes made before the baseline was generated are not detected; baseline from a trusted state.
+```bash
+python integrity.py verify --report report.html
+```
+
+Exit codes: `0` = all intact · `1` = tampering · `2` = hash store tampered
+
+---
+
+### 3. GUI
+
+Launch the Tkinter graphical interface:
+
+```bash
+python gui.py
+```
+
+> Requires Tkinter. See [Prerequisites](#prerequisites) if it's missing.
+
+---
+
+### 4. Demo (Scripted Attack Simulation)
+
+Runs a scripted demonstration that simulates file tampering attacks and shows detection:
+
+```bash
+python demo.py
+```
+
+---
+
+### 5. Test Suite
+
+Run all unit tests:
+
+```bash
+python -m unittest -v
+```
+
+---
+
+## All CLI Commands
+
+```bash
+# Generate baseline for files/folders (skip patterns with -x)
+python integrity.py generate docs/ file.txt -x "*.tmp"
+
+# Verify all tracked files
+python integrity.py verify
+
+# Verify and export a report (supports .html, .json, .txt)
+python integrity.py verify --report report.html
+
+# Accept an authorised change (update hash for one file)
+python integrity.py update file.txt
+
+# List all tracked files
+python integrity.py list
+
+# Remove a file from tracking
+python integrity.py remove <path>
+
+# Show audit log
+python integrity.py log
+
+# Print SHA-256 hash of a specific file
+python integrity.py hash <file>
+```
+
+---
+
+## How It Works
+
+```
+Files  →  SHA-256 (1 MB streaming chunks)  →  hashes.json
+                                                   ↓
+                                            HMAC-SHA256 signed
+                                            (key: .integrity.key
+                                             or INTEGRITY_KEY env var)
+                                                   ↓
+                              verify  →  recompute + hmac.compare_digest
+                                                   ↓
+                              OK / MODIFIED / MISSING / NEW / UNKNOWN
+```
+
+---
+
+## Security Notes
+
+- **Keep the HMAC key separate from the hash store.** If an attacker can rewrite both `hashes.json` and `.integrity.key`, tampering goes undetected.
+- Set the key via environment variable for production use:
+  ```bash
+  export INTEGRITY_KEY="your-secret-key"
+  ```
+- Baseline must be generated from a **trusted, clean state** — changes made before `generate` is run will not be detected.
+- Even a **single-bit change** produces a completely different SHA-256 digest (avalanche effect).
+
+---
+
+## References
+
+- [hashlib — Python Docs](https://docs.python.org/3/library/hashlib.html)
+- [hmac — Python Docs](https://docs.python.org/3/library/hmac.html)
+- Full design details: [REPORT.md](./REPORT.md)
